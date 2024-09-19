@@ -1,0 +1,53 @@
+<template>
+    <!-- Dropdown for selecting number of records per page -->
+    <div class="slds-p-bottom_small">
+        <label for="limitSelect">Records per page:</label>
+        <select id="limitSelect" onchange={handleLimitChange}>
+            <option value="500">500</option>
+            <option value="1000">1000</option>
+        </select>
+    </div>
+
+    <!-- Filter by Stage Dropdown -->
+    <div class="slds-p-bottom_small">
+        <lightning-combobox
+            label="Filter by Stage"
+            value={selectedFilter}
+            placeholder="Select a Stage"
+            options={filterOptions}
+            onchange={handleFilterChange}>
+        </lightning-combobox>
+    </div>
+
+    <!-- Data Table with sorting functionality -->
+    <lightning-datatable
+        key-field="id"
+        data={data}
+        columns={columns}
+        onsort={handleSort}
+        sorted-by={sortedBy}
+        sorted-direction={sortedDirection}
+        hide-checkbox-column="true">
+    </lightning-datatable>
+
+    <!-- Pagination Controls -->
+    <div class="pagination-controls">
+        <lightning-button
+            label="Previous"
+            onclick={handlePrevious}
+            disabled={isPreviousDisabled}>
+        </lightning-button>
+        <span>Page {pageNumber} of {totalPages}</span>
+        <lightning-button
+            label="Next"
+            onclick={handleNext}
+            disabled={isNextDisabled}>
+        </lightning-button>
+    </div>
+
+    <!-- Download Button -->
+    <lightning-button
+        label="Download All"
+        onclick={downloadAllData}>
+    </lightning-button>
+</template>
