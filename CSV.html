@@ -1,0 +1,61 @@
+<!-- csvUploaderComponent.html -->
+<template>
+    <lightning-card title="CSV Account Uploader" icon-name="standard:account">
+        <div class="slds-p-around_medium">
+            <div class="slds-grid slds-gutters">
+                <div class="slds-col">
+                    <lightning-input 
+                        type="file" 
+                        label="Upload CSV File" 
+                        accept=".csv" 
+                        onchange={handleFileChange}>
+                    </lightning-input>
+                </div>
+            </div>
+            
+            <div class="slds-m-top_medium">
+                <lightning-button 
+                    label="Upload" 
+                    variant="brand" 
+                    onclick={handleUpload} 
+                    disabled={isUploadDisabled}>
+                </lightning-button>
+            </div>
+            
+            <template if:true={isLoading}>
+                <div class="slds-p-around_medium slds-text-align_center">
+                    <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+                </div>
+            </template>
+            
+            <template if:true={isSuccess}>
+                <div class="slds-p-around_medium">
+                    <div class="slds-notify slds-notify_alert slds-theme_success" role="alert">
+                        <span class="slds-assistive-text">Success</span>
+                        <span>{successMessage}</span>
+                    </div>
+                </div>
+            </template>
+            
+            <template if:true={isError}>
+                <div class="slds-p-around_medium">
+                    <div class="slds-notify slds-notify_alert slds-theme_error" role="alert">
+                        <span class="slds-assistive-text">Error</span>
+                        <span>{errorMessage}</span>
+                    </div>
+                </div>
+            </template>
+            
+            <template if:true={showResults}>
+                <div class="slds-m-top_medium">
+                    <h3 class="slds-text-heading_small slds-m-bottom_small">Import Results</h3>
+                    <div class="slds-box">
+                        <p>Total Records: {totalRecords}</p>
+                        <p>Success Records: {successRecords}</p>
+                        <p>Failed Records: {failedRecords}</p>
+                    </div>
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>
