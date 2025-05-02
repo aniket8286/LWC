@@ -1,0 +1,57 @@
+<!-- syncStatus.html -->
+<template>
+    <div class="sync-status-container">
+        <!-- Total Records Circle -->
+        <div class="total-records-circle">
+            <div class="circle">
+                <p class="record-count">{totalRecords}</p>
+            </div>
+            <p class="total-label">Total Records</p>
+        </div>
+        
+        <!-- Status Table -->
+        <div class="status-table">
+            <!-- Header Row -->
+            <div class="table-header">
+                <div class="object-column"></div>
+                <div class="status-column">Inserts</div>
+                <div class="status-column">Update</div>
+                <div class="status-column">Failed</div>
+            </div>
+            
+            <!-- Object Rows -->
+            <template for:each={objectStatuses} for:item="obj">
+                <div key={obj.name} class="object-row">
+                    <div class="object-column">
+                        <lightning-icon icon-name={obj.icon} 
+                                        size="small" 
+                                        alternative-text={obj.name}
+                                        class={obj.statusClass}>
+                        </lightning-icon>
+                        <span class="object-name">{obj.name}</span>
+                    </div>
+                    <div class="status-column">
+                        <span class={obj.insertClass}>{obj.inserts}</span>
+                    </div>
+                    <div class="status-column">
+                        <span class={obj.updateClass}>{obj.updates}</span>
+                    </div>
+                    <div class="status-column">
+                        <span class={obj.failedClass}>{obj.failed}</span>
+                    </div>
+                </div>
+            </template>
+        </div>
+        
+        <!-- Sync Button -->
+        <div class="sync-button-container">
+            <lightning-button 
+                variant="brand" 
+                label="Start Sync" 
+                title="Start Sync" 
+                onclick={handleStartSync}
+                disabled={isSyncing}>
+            </lightning-button>
+        </div>
+    </div>
+</template>
