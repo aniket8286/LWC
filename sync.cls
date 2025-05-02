@@ -1,88 +1,122 @@
-// SyncController.cls
-public with sharing class SyncController {
+public with sharing class FinnoneMappingController {
+    private static String recordNameId = [Select id from RecordType where Name = 'Business Account' LIMIT 1].Id;
     
-    /**
-     * Starts the synchronization process for the given record
-     * @param recordId The ID of the record to sync
-     * @return SyncResult containing the updated status information
-     */
-    @AuraEnabled
-    public static SyncResult startSyncProcess(String recordId) {
-        try {
-            // In a real implementation, this would call your actual sync logic
-            // For demo purposes, we'll simulate a sync process with random results
-            return performSyncOperation(recordId);
-        } catch (Exception e) {
-            throw new AuraHandledException('Error during synchronization: ' + e.getMessage());
+    public class ProcessResult {
+        @AuraEnabled public Integer upsertCount { get; set; }
+        @AuraEnabled public Integer insertCount { get; set; }
+        @AuraEnabled public Integer failedCount { get; set; }
+        @AuraEnabled public List<Id> processedRecords { get; set; }
+        @AuraEnabled public String batchJobId { get; set; }
+        @AuraEnabled public String status { get; set; }
+        
+        public ProcessResult() {
+            upsertCount = 0;
+            insertCount = 0;
+            failedCount = 0;
+            processedRecords = new List<Id>();
+            status = 'Processing';
         }
     }
     
     /**
-     * Simulates a sync operation with the integration system
-     * In a real implementation, this would contain your actual sync logic
+     * Process CSV file using ContentDocument ID
+     * @param contentDocumentId The ContentDocument ID of the uploaded file
+     * @return ProcessResult with batch job ID and initial status
      */
-    private static SyncResult performSyncOperation(String recordId) {
-        // Simulate processing delay
-        Long startTime = System.currentTimeMillis();
-        Long endTime = startTime + 2000; // 2 seconds
-        while (System.currentTimeMillis() < endTime) {
-            // Simulate processing time
+    @AuraEnabled
+    public static ProcessResult processCSVData(String contentDocumentId) {
+        ProcessResult result = new ProcessResult();
+        
+        try {
+            // Retrieve the file content
+            ContentVersion contentVersion = [
+                SELECT VersionData 
+                FROM ContentVersion 
+                WHERE ContentDocumentId = :contentDocumentId 
+                AND IsLatest = true
+                LIMIT 1
+            ];
+            
+            if (contentVersion == null) {
+                throw new AuraHandledException('File not found');
+            }
+            
+            // Get the file content as a string
+            String csvContent = contentVersion.VersionData.toString();
+            
+            // Parse the CSV content and start batch process
+            CSVProcessingBatch batchProcess = new CSVProcessingBatch(csvContent);
+            Id batchId = Database.executeBatch(batchProcess, 200);
+            
+            // Store batch ID for reference
+            result.batchJobId = batchId;
+            result.processedRecords.add(batchId);
+            
+            // Create a batch job status record to track results
+            BatchJobStatus__c status = new BatchJobStatus__c(
+                BatchId__c = batchId,
+                JobType__c = 'CSV Processing',
+                Status__c = 'Processing',
+                StartTime__c = Datetime.now()
+            );
+            insert status;
+            
+        } catch (Exception e) {
+            String fullError = 'Error processing CSV data: ' + e.getMessage() + ' at line ' + e.getLineNumber() + '\n' + e.getStackTraceString();
+            System.debug('FULL ERROR: ' + fullError);
+            throw new AuraHandledException(fullError);
         }
         
-        List<ObjectStatus> objectStatuses = new List<ObjectStatus>();
-        
-        // Account object status - with real data
-        ObjectStatus accountStatus = new ObjectStatus();
-        accountStatus.name = 'Account';
-        accountStatus.icon = 'standard:account';
-        accountStatus.inserts = 100;
-        accountStatus.updates = 50;
-        accountStatus.failed = 0;
-        objectStatuses.add(accountStatus);
-        
-        // Contact object status - simulated with random data
-        ObjectStatus contactStatus = new ObjectStatus();
-        contactStatus.name = 'Contact';
-        contactStatus.icon = 'standard:contact';
-        contactStatus.inserts = Integer.valueOf(Math.random() * 50);
-        contactStatus.updates = Integer.valueOf(Math.random() * 30);
-        contactStatus.failed = Integer.valueOf(Math.random() * 5);
-        objectStatuses.add(contactStatus);
-        
-        // Bank Master object status - simulated with random data
-        ObjectStatus bankStatus = new ObjectStatus();
-        bankStatus.name = 'Bank Master';
-        bankStatus.icon = 'standard:asset_relationship';
-        bankStatus.inserts = Integer.valueOf(Math.random() * 20);
-        bankStatus.updates = Integer.valueOf(Math.random() * 15);
-        bankStatus.failed = Integer.valueOf(Math.random() * 3);
-        objectStatuses.add(bankStatus);
-        
-        // Create and return the result
-        SyncResult result = new SyncResult();
-        result.objectStatuses = objectStatuses;
         return result;
     }
     
     /**
-     * Wrapper class to hold sync result data
+     * Check the status of a batch job
+     * @param batchId The ID of the batch job to check
+     * @return ProcessResult with current status and counts
      */
-    public class SyncResult {
-        @AuraEnabled public List<ObjectStatus> objectStatuses;
+    @AuraEnabled
+    public static ProcessResult checkBatchStatus(String batchId) {
+        ProcessResult result = new ProcessResult();
         
-        public SyncResult() {
-            objectStatuses = new List<ObjectStatus>();
+        try {
+            // Query for the status record
+            BatchJobStatus__c status = [
+                SELECT Id, Status__c, RecordsProcessed__c, RecordsFailed__c, 
+                       RecordsSucceeded__c, RecordsUpdated__c, RecordsInserted__c 
+                FROM BatchJobStatus__c 
+                WHERE BatchId__c = :batchId 
+                LIMIT 1
+            ];
+            
+            // Also check the AsyncApexJob for more accurate status
+            AsyncApexJob job = [
+                SELECT Id, Status, NumberOfErrors, JobItemsProcessed, TotalJobItems, CompletedDate
+                FROM AsyncApexJob 
+                WHERE Id = :batchId
+            ];
+            
+            // Update our status based on the AsyncApexJob status
+            if (job.Status == 'Completed' || job.Status == 'Failed' || job.Status == 'Aborted') {
+                status.Status__c = job.Status;
+                update status;
+            }
+            
+            // Set result values
+            result.batchJobId = batchId;
+            result.status = status.Status__c;
+            result.upsertCount = status.RecordsUpdated__c != null ? Integer.valueOf(status.RecordsUpdated__c) : 0;
+            result.insertCount = status.RecordsInserted__c != null ? Integer.valueOf(status.RecordsInserted__c) : 0;
+            result.failedCount = status.RecordsFailed__c != null ? Integer.valueOf(status.RecordsFailed__c) : 0;
+            
+            // Add the batch ID to processed records
+            result.processedRecords.add(batchId);
+            
+        } catch (Exception e) {
+            System.debug('Error checking batch status: ' + e.getMessage());
+            result.status = 'Error: ' + e.getMessage();
         }
-    }
-    
-    /**
-     * Wrapper class to hold status data for each object type
-     */
-    public class ObjectStatus {
-        @AuraEnabled public String name;
-        @AuraEnabled public String icon;
-        @AuraEnabled public Integer inserts;
-        @AuraEnabled public Integer updates;
-        @AuraEnabled public Integer failed;
+        
+        return result;
     }
 }
