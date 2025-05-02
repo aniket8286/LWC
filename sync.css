@@ -1,0 +1,120 @@
+/* syncStatus.css */
+.sync-status-container {
+    padding: 1rem;
+    font-family: 'Salesforce Sans', Arial, sans-serif;
+    max-width: 800px;
+    margin: 0 auto;
+}
+
+/* Total Records Circle */
+.total-records-circle {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.circle {
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    border: 3px solid #4CAF50;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 0.5rem;
+}
+
+.record-count {
+    font-size: 2.5rem;
+    font-weight: bold;
+    color: #4CAF50;
+    margin: 0;
+}
+
+.total-label {
+    font-size: 1.2rem;
+    font-weight: bold;
+    color: #333;
+    margin: 0;
+}
+
+/* Status Table */
+.status-table {
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 1.5rem;
+}
+
+.table-header {
+    display: flex;
+    background-color: #f9f9f9;
+    border-bottom: 1px solid #e0e0e0;
+    font-weight: bold;
+    padding: 0.75rem 0;
+}
+
+.object-row {
+    display: flex;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 0.75rem 0;
+}
+
+.object-row:last-child {
+    border-bottom: none;
+}
+
+.object-column {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    padding-left: 1rem;
+}
+
+.status-column {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+.object-name {
+    margin-left: 0.5rem;
+    font-weight: 500;
+}
+
+/* Status Colors */
+.success-text {
+    color: #4CAF50;
+    font-weight: bold;
+}
+
+.warning-text {
+    color: #FFB74D;
+    font-weight: bold;
+}
+
+.error-text {
+    color: #F44336;
+    font-weight: bold;
+}
+
+.success-icon {
+    --sds-c-icon-color-foreground-default: #4CAF50;
+}
+
+.error-icon {
+    --sds-c-icon-color-foreground-default: #F44336;
+}
+
+.locked-icon {
+    --sds-c-icon-color-foreground-default: #757575;
+}
+
+/* Sync Button */
+.sync-button-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 1.5rem;
+}
