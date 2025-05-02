@@ -1,4 +1,74 @@
-Integer maxAttempts = 100;  // Limit the number of attempts to prevent infinite looping
+public with sharing class FinnoneMappingController {
+    private static String recordNameId = [Select id from RecordType where Name = 'Business Account' LIMIT 1].Id;
+    
+    public class ProcessResult {
+        @AuraEnabled public Integer upsertCount { get; set; }
+        @AuraEnabled public Integer insertCount { get; set; }
+        @AuraEnabled public Integer failedCount { get; set; }
+        @AuraEnabled public List<Id> processedRecords { get; set; }
+        
+        public ProcessResult() {
+            upsertCount = 0;
+            insertCount = 0;
+            failedCount = 0;
+            processedRecords = new List<Id>();
+        }
+    }
+    
+    /**
+     * Process CSV file using ContentDocument ID
+     * @param contentDocumentId The ContentDocument ID of the uploaded file
+     * @return ProcessResult with counts of successful operations and failures
+     */
+    @AuraEnabled
+    public static ProcessResult processCSVData(String contentDocumentId) {
+        ProcessResult result = new ProcessResult();
+        Id batchId = null;
+        try {
+            // Retrieve the file content
+            ContentVersion contentVersion = [
+                SELECT VersionData 
+                FROM ContentVersion 
+                WHERE ContentDocumentId = :contentDocumentId 
+                AND IsLatest = true
+                LIMIT 1
+            ];
+            
+            if (contentVersion == null) {
+                throw new AuraHandledException('File not found');
+            }
+            
+            // Get the file content as a string
+            String csvContent = contentVersion.VersionData.toString();
+            
+            // Parse the CSV content and start batch process
+            CSVProcessingBatch batchProcess = new CSVProcessingBatch(csvContent);
+            batchId = Database.executeBatch(batchProcess, 200);
+            
+            // Return initial result - actual processing will happen asynchronously
+            result.processedRecords.add(batchId); // Store batch ID for reference
+            
+            // Create a batch job status record to track results
+            BatchJobStatus__c status = new BatchJobStatus__c(
+                BatchId__c = batchId,
+                JobType__c = 'CSV Processing',
+                Status__c = 'Processing',
+                StartTime__c = Datetime.now()
+            );
+            insert status;
+            
+        } catch (Exception e) {
+            String fullError = 'Error processing CSV data: ' + e.getMessage() + ' at line ' + e.getLineNumber() + '\n' + e.getStackTraceString();
+            System.debug('FULL ERROR: ' + fullError);
+            throw new AuraHandledException(fullError);
+        }
+
+        // BatchJobStatus__c status = [Select Id, Status__c,RecordsProcessed__c,RecordsFailed__c,RecordsSucceeded__c,RecordsUpdated__c,RecordsInserted__c ,JobType__c, BatchId__c, StartTime__c from BatchJobStatus__c where BatchId__c ='707Bg00000JRkR7IAL' ];
+        // result.upsertCount = (Integer)status.RecordsUpdated__c;
+        // result.failedCount = (Integer)status.RecordsFailed__c;
+        // result.insertCount = (Integer)status.RecordsInserted__c;
+        
+        Integer maxAttempts = 10;  // Limit the number of attempts to prevent infinite looping
         Integer attempts = 0;
         Integer delayMs = 5000;  // Wait time in milliseconds (5 seconds)
 
@@ -18,7 +88,7 @@ Integer maxAttempts = 100;  // Limit the number of attempts to prevent infinite 
         }
 
         // Wait before checking again
-            System.sleep(delayMs);
+           // System.sleep(delayMs);
             attempts++;
         }
 
@@ -28,3 +98,4 @@ Integer maxAttempts = 100;  // Limit the number of attempts to prevent infinite 
         result.insertCount = (Integer)status.RecordsInserted__c;
 
         return result;
+    }
