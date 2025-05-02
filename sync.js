@@ -1,108 +1,149 @@
-// syncStatus.js
-import { LightningElement, api, track } from 'lwc';
+// csvUploader.js
+import { LightningElement, track } from 'lwc';
 import { ShowToastEvent } from 'lightning/platformShowToastEvent';
-import startSyncProcess from '@salesforce/apex/SyncController.startSyncProcess';
+import processCSVData from '@salesforce/apex/FinnoneMappingController.processCSVData';
+import checkBatchStatus from '@salesforce/apex/FinnoneMappingController.checkBatchStatus';
 
-export default class SyncStatus extends LightningElement {
-    @api recordId;
-    @track isSyncing = false;
-    @track totalRecords = 0;
-    @track objectStatuses = [
-        {
-            name: 'Account',
-            icon: 'standard:account',
-            inserts: '100',
-            insertClass: 'success-text',
-            updates: '50',
-            updateClass: 'warning-text',
-            failed: '0',
-            failedClass: 'error-text',
-            statusClass: 'success-icon'
-        },
-        {
-            name: 'Contact',
-            icon: 'standard:contact',
-            inserts: '-',
-            insertClass: '',
-            updates: '-',
-            updateClass: '',
-            failed: '-',
-            failedClass: '',
-            statusClass: 'locked-icon'
-        },
-        {
-            name: 'Bank Master',
-            icon: 'standard:asset_relationship',
-            inserts: '-',
-            insertClass: '',
-            updates: '-',
-            updateClass: '',
-            failed: '-',
-            failedClass: '',
-            statusClass: 'locked-icon'
+export default class CsvUploader extends LightningElement {
+    @track isLoading = false;
+    @track uploadedFileName = '';
+    @track contentDocumentId = '';
+    @track batchJobId = '';
+    @track statusMessage = '';
+    @track progress = 0;
+    @track showResults = false;
+    @track result = {
+        upsertCount: 0,
+        insertCount: 0,
+        failedCount: 0,
+        status: ''
+    };
+    
+    // Polling mechanism variables
+    pollingTimer;
+    pollingInterval = 5000; // 5 seconds
+    maxPollingAttempts = 30; // Max 2.5 minutes of polling
+    pollingAttempts = 0;
+    
+    handleFileUpload(event) {
+        const uploadedFiles = event.detail.files;
+        if (uploadedFiles.length > 0) {
+            this.uploadedFileName = uploadedFiles[0].name;
+            this.contentDocumentId = uploadedFiles[0].documentId;
         }
-    ];
-
-    connectedCallback() {
-        // Calculate total records from actual data
-        this.calculateTotalRecords();
     }
-
-    calculateTotalRecords() {
-        let total = 0;
-        this.objectStatuses.forEach(obj => {
-            if (obj.inserts !== '-') {
-                total += parseInt(obj.inserts, 10);
-            }
-            if (obj.updates !== '-') {
-                total += parseInt(obj.updates, 10);
-            }
-            // Don't count failed records in total as they're already counted in attempted inserts/updates
-        });
-        this.totalRecords = total;
-    }
-
-    handleStartSync() {
-        this.isSyncing = true;
+    
+    handleProcessData() {
+        if (!this.contentDocumentId) {
+            this.showToast('Error', 'Please upload a CSV file first', 'error');
+            return;
+        }
         
-        // Call Apex method to start synchronization
-        startSyncProcess({ recordId: this.recordId })
+        this.isLoading = true;
+        this.statusMessage = 'Processing file...';
+        this.progress = 10;
+        
+        processCSVData({ contentDocumentId: this.contentDocumentId })
             .then(result => {
-                this.processResult(result);
-                this.showToast('Success', 'Synchronization completed successfully', 'success');
+                this.batchJobId = result.batchJobId;
+                this.statusMessage = 'Processing started. Checking status...';
+                this.progress = 20;
+                
+                // Start polling for status
+                this.startPolling();
             })
             .catch(error => {
-                console.error('Error during sync process', error);
-                this.showToast('Error', 'Synchronization failed: ' + error.body.message, 'error');
-            })
-            .finally(() => {
-                this.isSyncing = false;
+                this.handleError(error);
             });
     }
-
-    processResult(result) {
-        // Update component with returned sync results
-        if (result && result.objectStatuses) {
-            this.objectStatuses = result.objectStatuses.map(obj => {
-                return {
-                    ...obj,
-                    insertClass: obj.inserts > 0 ? 'success-text' : '',
-                    updateClass: obj.updates > 0 ? 'warning-text' : '',
-                    failedClass: obj.failed > 0 ? 'error-text' : '',
-                    statusClass: obj.failed > 0 ? 'error-icon' : 'success-icon'
-                };
-            });
-            this.calculateTotalRecords();
+    
+    startPolling() {
+        // Clear any existing polling
+        if (this.pollingTimer) {
+            clearInterval(this.pollingTimer);
         }
+        
+        this.pollingAttempts = 0;
+        
+        // Set up polling at regular intervals
+        this.pollingTimer = setInterval(() => {
+            this.pollBatchStatus();
+        }, this.pollingInterval);
     }
-
-    showToast(title, message, variant) {
-        this.dispatchEvent(
-            new ShowToastEvent({
-                title: title,
-                message: message,
-                variant: variant
+    
+    pollBatchStatus() {
+        this.pollingAttempts++;
+        
+        checkBatchStatus({ batchId: this.batchJobId })
+            .then(result => {
+                // Update the status and progress
+                this.result = result;
+                
+                // Calculate progress (just an estimate)
+                this.progress = Math.min(20 + (this.pollingAttempts * 2), 90);
+                
+                if (result.status === 'Completed') {
+                    this.progress = 100;
+                    this.statusMessage = 'Processing complete!';
+                    this.showResults = true;
+                    this.stopPolling();
+                    this.showToast('Success', 'CSV processing completed', 'success');
+                } else if (result.status === 'Failed' || result.status === 'Aborted') {
+                    this.progress = 100;
+                    this.statusMessage = 'Processing failed!';
+                    this.showResults = true;
+                    this.stopPolling();
+                    this.showToast('Error', 'CSV processing failed', 'error');
+                } else {
+                    this.statusMessage = `Processing... (Attempt ${this.pollingAttempts})`;
+                    
+                    // Check if we've reached max attempts
+                    if (this.pollingAttempts >= this.maxPollingAttempts) {
+                        this.stopPolling();
+                        this.statusMessage = 'Processing is taking longer than expected. Check back later.';
+                        this.showToast('Warning', 'Processing is taking longer than expected', 'warning');
+                    }
+                }
             })
-        );
+            .catch(error => {
+                this.handleError(error);
+                this.stopPolling();
+            });
+    }
+    
+    stopPolling() {
+        if (this.pollingTimer) {
+            clearInterval(this.pollingTimer);
+            this.pollingTimer = null;
+        }
+        this.isLoading = false;
+    }
+    
+    handleError(error) {
+        this.isLoading = false;
+        this.statusMessage = 'An error occurred';
+        console.error('Error:', error);
+        this.showToast('Error', this.extractErrorMessage(error), 'error');
+    }
+    
+    extractErrorMessage(error) {
+        let message = 'Unknown error';
+        if (typeof error === 'string') {
+            message = error;
+        } else if (error.body && error.body.message) {
+            message = error.body.message;
+        } else if (error.message) {
+            message = error.message;
+        }
+        return message;
+    }
+    
+    showToast(title, message, variant) {
+        const evt = new ShowToastEvent({
+            title: title,
+            message: message,
+            variant: variant
+        });
+        this.dispatchEvent(evt);
     }
 }
