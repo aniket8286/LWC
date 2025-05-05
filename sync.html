@@ -1,57 +1,110 @@
 <!-- syncStatus.html -->
 <template>
-    <div class="sync-status-container">
-        <!-- Total Records Circle -->
-        <div class="total-records-circle">
-            <div class="circle">
-                <p class="record-count">{totalRecords}</p>
-            </div>
-            <p class="total-label">Total Records</p>
+    <template if:true={isLoading}>
+        <div class="slds-is-relative slds-m-top_medium">
+            <lightning-spinner alternative-text="Processing" size="medium"></lightning-spinner>
         </div>
+    </template>
+
+    <template if:true={error}>
+        <div class="slds-m-top_small">
+            <div class="slds-text-color_error">{error}</div>
+        </div>
+    </template>
+   
+    <div>
         
-        <!-- Status Table -->
-        <div class="status-table">
-            <!-- Header Row -->
-            <div class="table-header">
-                <div class="object-column"></div>
-                <div class="status-column">Inserts</div>
-                <div class="status-column">Update</div>
-                <div class="status-column">Failed</div>
-            </div>
-            
-            <!-- Object Rows -->
-            <template for:each={objectStatuses} for:item="obj">
-                <div key={obj.name} class="object-row">
-                    <div class="object-column">
-                        <lightning-icon icon-name={obj.icon} 
-                                        size="small" 
-                                        alternative-text={obj.name}
-                                        class={obj.statusClass}>
-                        </lightning-icon>
-                        <span class="object-name">{obj.name}</span>
-                    </div>
-                    <div class="status-column">
-                        <span class={obj.insertClass}>{obj.inserts}</span>
-                    </div>
-                    <div class="status-column">
-                        <span class={obj.updateClass}>{obj.updates}</span>
-                    </div>
-                    <div class="status-column">
-                        <span class={obj.failedClass}>{obj.failed}</span>
-                    </div>
+        <template if:false={isFileUploaded}>
+        <div class="uploadCard" title="Upload CSV">
+            <lightning-combobox
+                name="PartnerType"
+                label="Partner Type"
+                value={value}
+                placeholder="Select Partner Type"
+                options={PartnerOptions}
+                onchange={handlePartnerOptionsChange}
+                class="fullWidth" >
+            </lightning-combobox>
+            <template if:true={isDealer}>
+                <lightning-file-upload
+                    label="Upload CSV File"
+                    name="fileUploader"
+                    accept={acceptedFormats}
+                    record-id={recordId}
+                    onuploadfinished={handleUploadFinished}
+                    multiple="false"
+                    class="fullWidth">
+                </lightning-file-upload>
+            </template>
+            <template if:true={isFileUploaded}>
+                <div class="slds-m-top_medium fullWidth">
+                    <p>File uploaded: {fileName}</p>
                 </div>
             </template>
         </div>
-        
-        <!-- Sync Button -->
-        <div class="sync-button-container">
-            <lightning-button 
-                variant="brand" 
-                label="Start Sync" 
-                title="Start Sync" 
-                onclick={handleStartSync}
-                disabled={isSyncing}>
-            </lightning-button>
+    </template>
+
+    
+    <template if:true={isFileUploaded}>
+        <div class="sync-status-container">
+            <!-- Total Records Circle -->
+            <div class="total-records-circle">
+                <div class="circle">
+                    <p class="record-count">{totalRecords}</p>
+                </div>
+                <p class="total-label">Total Records</p>
+            </div>
+            
+            <!-- Status Table -->
+            <div class="status-table">
+                <!-- Header Row -->
+                <div class="table-header">
+                    <div class="object-column"></div>
+                    <div class="status-column">Inserts</div>
+                    <div class="status-column">Update</div>
+                    <div class="status-column">Failed</div>
+                </div>
+                
+                <!-- Object Rows -->
+                <template for:each={objectStatuses} for:item="obj">
+                    <div key={obj.name} class="object-row">
+                        <div class="object-column">
+                            <lightning-icon icon-name={obj.icon} 
+                                            size="small" 
+                                            alternative-text={obj.name}
+                                            class={obj.statusClass}>
+                            </lightning-icon>
+                            <span class="object-name">{obj.name}</span>
+                        </div>
+                        <div class="status-column">
+                            <span class={obj.insertClass}>{obj.inserts}</span>
+                        </div>
+                        <div class="status-column">
+                            <span class={obj.updateClass}>{obj.updates}</span>
+                        </div>
+                        <div class="status-column">
+                            <span class={obj.failedClass}>{obj.failed}</span>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            
+            <!-- Sync Button -->
+             <template if:false={isStarted}>
+                <div class="sync-button-container">
+                    <lightning-button 
+                        variant="brand" 
+                        label="Start Sync" 
+                        title="Start Sync" 
+                        onclick={handleStartSync}
+                        disabled={isSyncing}>
+                    </lightning-button>
+                </div>
+            </template>
         </div>
-    </div>
+    </template>
+
+        
+    </div>  
+    
 </template>
