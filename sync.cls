@@ -1,122 +1,159 @@
-public with sharing class FinnoneMappingController {
+// MapToAccountBatch.cls
+public class MapToAccountBatch implements Database.Batchable<SObject>, Database.Stateful {
+    private Map<String, Integer> result;
     private static String recordNameId = [Select id from RecordType where Name = 'Business Account' LIMIT 1].Id;
     
-    public class ProcessResult {
-        @AuraEnabled public Integer upsertCount { get; set; }
-        @AuraEnabled public Integer insertCount { get; set; }
-        @AuraEnabled public Integer failedCount { get; set; }
-        @AuraEnabled public List<Id> processedRecords { get; set; }
-        @AuraEnabled public String batchJobId { get; set; }
-        @AuraEnabled public String status { get; set; }
+    private Integer recordsProcessed = 0;
+    private Integer recordsInserted = 0;
+    private Integer recordsUpdated = 0;
+    private Integer recordsSucceeded = 0;
+    private Integer recordsFailed = 0;
+    private String jobMessage = '';
+    
+    public Database.QueryLocator start(Database.BatchableContext BC) {
+        Map<String, String> finnoneToAccountFieldMap = new Map<String, String>{
+            'Name' => 'Name',
+            'AgencyCode__c' => 'AgencyCode__c',
+            'Bank_Ac_No__c' => 'AccountNumber',
+            'City_Id__c' => 'BillingCity'
+        };
         
-        public ProcessResult() {
-            upsertCount = 0;
-            insertCount = 0;
-            failedCount = 0;
-            processedRecords = new List<Id>();
-            status = 'Processing';
-        }
+        String query = 'SELECT Id, SF_Account_Id__c, SF_Contact_Id__c, SF_BatchId__c ';
+        for (String f : finnoneToAccountFieldMap.keySet()) query += ', ' + f;
+        query += ' FROM FinnoneSync__c ';
+        
+        return Database.getQueryLocator(query);
     }
     
-    /**
-     * Process CSV file using ContentDocument ID
-     * @param contentDocumentId The ContentDocument ID of the uploaded file
-     * @return ProcessResult with batch job ID and initial status
-     */
-    @AuraEnabled
-    public static ProcessResult processCSVData(String contentDocumentId) {
-        ProcessResult result = new ProcessResult();
+    public void execute(Database.BatchableContext BC, List<SObject> scope) {
+        List<FinnoneSync__c> finnoneSyncRecords = (List<FinnoneSync__c>)scope;
         
-        try {
-            // Retrieve the file content
-            ContentVersion contentVersion = [
-                SELECT VersionData 
-                FROM ContentVersion 
-                WHERE ContentDocumentId = :contentDocumentId 
-                AND IsLatest = true
-                LIMIT 1
-            ];
-            
-            if (contentVersion == null) {
-                throw new AuraHandledException('File not found');
-            }
-            
-            // Get the file content as a string
-            String csvContent = contentVersion.VersionData.toString();
-            
-            // Parse the CSV content and start batch process
-            CSVProcessingBatch batchProcess = new CSVProcessingBatch(csvContent);
-            Id batchId = Database.executeBatch(batchProcess, 200);
-            
-            // Store batch ID for reference
-            result.batchJobId = batchId;
-            result.processedRecords.add(batchId);
-            
-            // Create a batch job status record to track results
-            BatchJobStatus__c status = new BatchJobStatus__c(
-                BatchId__c = batchId,
-                JobType__c = 'CSV Processing',
-                Status__c = 'Processing',
-                StartTime__c = Datetime.now()
+        Map<String, String> finnoneToAccountFieldMap = new Map<String, String>{
+            'Name' => 'Name',
+            'AgencyCode__c' => 'AgencyCode__c',
+            'Bank_Ac_No__c' => 'AccountNumber',
+             'City_Id__c' => 'BillingCity'
+        };
+        
+        Map<Id, Account> existingAccountsMap = new Map<Id, Account>();
+        Set<Id> existingIds = new Set<Id>();
+        
+        for (FinnoneSync__c fs : finnoneSyncRecords) {
+            if (String.isNotBlank(fs.SF_Account_Id__c)) existingIds.add((String)fs.SF_Account_Id__c);
+        }
+        
+        if (!existingIds.isEmpty()) {
+            existingAccountsMap = new Map<Id, Account>(
+                [SELECT Id, Name FROM Account WHERE Id IN :existingIds]
             );
-            insert status;
-            
-        } catch (Exception e) {
-            String fullError = 'Error processing CSV data: ' + e.getMessage() + ' at line ' + e.getLineNumber() + '\n' + e.getStackTraceString();
-            System.debug('FULL ERROR: ' + fullError);
-            throw new AuraHandledException(fullError);
         }
         
-        return result;
-    }
-    
-    /**
-     * Check the status of a batch job
-     * @param batchId The ID of the batch job to check
-     * @return ProcessResult with current status and counts
-     */
-    @AuraEnabled
-    public static ProcessResult checkBatchStatus(String batchId) {
-        ProcessResult result = new ProcessResult();
+        List<Account> accountsToUpsert = new List<Account>();
         
-        try {
-            // Query for the status record
-            BatchJobStatus__c status = [
-                SELECT Id, Status__c, RecordsProcessed__c, RecordsFailed__c, 
-                       RecordsSucceeded__c, RecordsUpdated__c, RecordsInserted__c 
-                FROM BatchJobStatus__c 
-                WHERE BatchId__c = :batchId 
-                LIMIT 1
-            ];
-            
-            // Also check the AsyncApexJob for more accurate status
-            AsyncApexJob job = [
-                SELECT Id, Status, NumberOfErrors, JobItemsProcessed, TotalJobItems, CompletedDate
-                FROM AsyncApexJob 
-                WHERE Id = :batchId
-            ];
-            
-            // Update our status based on the AsyncApexJob status
-            if (job.Status == 'Completed' || job.Status == 'Failed' || job.Status == 'Aborted') {
-                status.Status__c = job.Status;
-                update status;
+        for (FinnoneSync__c fs : finnoneSyncRecords) {
+            Account acc;
+            if (String.isNotBlank(fs.SF_Account_Id__c) && existingAccountsMap.containsKey(fs.SF_Account_Id__c)) {
+                // result.put('updatedCount', result.get('updatedCount') + 1);
+                recordsUpdated++;
+                acc = existingAccountsMap.get(fs.SF_Account_Id__c);
+            } else {
+                // result.put('insertedCount', result.get('insertedCount') + 1);
+                recordsInserted++;
+                acc = new Account();
             }
             
-            // Set result values
-            result.batchJobId = batchId;
-            result.status = status.Status__c;
-            result.upsertCount = status.RecordsUpdated__c != null ? Integer.valueOf(status.RecordsUpdated__c) : 0;
-            result.insertCount = status.RecordsInserted__c != null ? Integer.valueOf(status.RecordsInserted__c) : 0;
-            result.failedCount = status.RecordsFailed__c != null ? Integer.valueOf(status.RecordsFailed__c) : 0;
+            for (String finnoneField : finnoneToAccountFieldMap.keySet()) {
+                String accountField = finnoneToAccountFieldMap.get(finnoneField);
+                Object value = fs.get(finnoneField);
+                if (value != null) acc.put(accountField, value);
+            }
             
-            // Add the batch ID to processed records
-            result.processedRecords.add(batchId);
+            // Set record type and partner type
+            acc.put('Partner_Type__c', 'Dealer');
+            // if (recordNameId != null) {
+            //     acc.RecordTypeId = recordNameId;
+            // }
             
-        } catch (Exception e) {
-            System.debug('Error checking batch status: ' + e.getMessage());
-            result.status = 'Error: ' + e.getMessage();
+            accountsToUpsert.add(acc);
         }
         
-        return result;
+        if (!accountsToUpsert.isEmpty()) {
+            List<Database.UpsertResult> results = Database.upsert(accountsToUpsert, Account.Id, false);
+            
+            List<FinnoneSync__c> toUpdate = new List<FinnoneSync__c>();
+            String batchId = BC.getJobId();
+            for (Integer i = 0; i < results.size(); i++) {
+                if (results[i].isSuccess()) {
+                    finnoneSyncRecords[i].SF_BatchId__c = batchId;
+                   
+                    if (String.isBlank(finnoneSyncRecords[i].SF_Account_Id__c)) {
+                        finnoneSyncRecords[i].SF_Account_Id__c = results[i].getId();
+                        // finnoneSyncRecords[i].SF_BatchId__c = batchId;
+                        System.debug('finnoneSyncRecords[i].SF_BatchId__c ==========> ' + finnoneSyncRecords[i].SF_BatchId__c  );
+                        System.debug('batchId -===============> ' + batchId);
+                        toUpdate.add(finnoneSyncRecords[i]);
+                    }
+
+                }
+            }
+            
+            if (!toUpdate.isEmpty()) update toUpdate;
+        }
+    }
+    
+    public void finish(Database.BatchableContext BC) {
+        // Update the batch job status record
+        try {
+            // Query for AsyncApexJob to get total job items
+            AsyncApexJob job = [
+                SELECT Id, TotalJobItems, NumberOfErrors
+                FROM AsyncApexJob 
+                WHERE Id = :BC.getJobId()
+            ];
+            
+            
+            List<BatchJobStatus__c> statusRecords = [   
+                SELECT Id 
+                FROM BatchJobStatus__c 
+                WHERE BatchId__c = :BC.getJobId() 
+                LIMIT 1
+            ];
+
+            
+            // BatchJobStatus__c statusRecord = new BatchJobStatus__c();
+            
+            if (!statusRecords.isEmpty()) {
+                BatchJobStatus__c statusRecord = statusRecords[0];
+                // statusRecord.BatchId__c = BC.getJobId() ;
+                statusRecord.Status__c = 'Account Completed';
+                statusRecord.RecordsProcessed__c = this.recordsInserted + this.recordsUpdated;
+                statusRecord.RecordsInserted__c = this.recordsInserted;
+                statusRecord.RecordsSucceeded__c = (this.recordsInserted + this.recordsUpdated) - this.recordsFailed;
+                statusRecord.RecordsUpdated__c = this.recordsUpdated;
+                statusRecord.RecordsFailed__c = this.recordsFailed;
+                statusRecord.EndTime__c = Datetime.now();
+                statusRecord.JobMessage__c = this.jobMessage;
+                
+                update statusRecord;
+            }
+
+            // statusRecord.BatchId__c = BC.getJobId() ;
+            // statusRecord.Status__c = 'Account Completed';
+            // statusRecord.RecordsProcessed__c = this.recordsInserted + this.recordsUpdated;
+            // statusRecord.RecordsInserted__c = this.recordsInserted;
+            // statusRecord.RecordsSucceeded__c = (this.recordsInserted + this.recordsUpdated) - this.recordsFailed;
+            // statusRecord.RecordsUpdated__c = this.recordsUpdated;
+            // statusRecord.RecordsFailed__c = this.recordsFailed;
+            // statusRecord.EndTime__c = Datetime.now();
+            // statusRecord.JobMessage__c = this.jobMessage;
+            
+            // insert statusRecord;
+            
+            // Database.executeBatch(new MapToContactBatch(), 200);
+            
+        } catch (Exception e) {
+            System.debug('Error updating batch job status: ' + e.getMessage());
+        }
+
     }
 }
