@@ -4,6 +4,9 @@
     font-family: 'Salesforce Sans', Arial, sans-serif;
     max-width: 800px;
     margin: 0 auto;
+    background-color: white;
+    border-radius: 4px;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
 }
 
 /* Total Records Circle */
@@ -23,6 +26,7 @@
     align-items: center;
     justify-content: center;
     margin-bottom: 0.5rem;
+    background-color: white;
 }
 
 .record-count {
@@ -45,6 +49,7 @@
     border-radius: 4px;
     overflow: hidden;
     margin-bottom: 1.5rem;
+    background-color: white;
 }
 
 .table-header {
@@ -59,6 +64,7 @@
     display: flex;
     border-bottom: 1px solid #e0e0e0;
     padding: 0.75rem 0;
+    background-color: white;
 }
 
 .object-row:last-child {
