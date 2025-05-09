@@ -1,7 +1,7 @@
-public class MapToAccountBatch implements Database.Batchable<SObject>, Database.Stateful {
+// MapToContactBatch.cls
+public class MapToContactBatch implements Database.Batchable<SObject>, Database.Stateful {
     private Map<String, Integer> result;
-    private static String recordNameId = [Select id from RecordType where Name = 'Business Account' LIMIT 1].Id;
-    
+
     private Integer recordsProcessed = 0;
     private Integer recordsInserted = 0;
     private Integer recordsUpdated = 0;
@@ -9,17 +9,22 @@ public class MapToAccountBatch implements Database.Batchable<SObject>, Database.
     private Integer recordsFailed = 0;
     private String jobMessage = '';
     
+    public MapToContactBatch() {
+        this.result = new Map<String, Integer>{
+            'mappedCount' => 0, 
+            'insertedCount' => 0, 
+            'updatedCount' => 0
+        };
+    }
+    
     public Database.QueryLocator start(Database.BatchableContext BC) {
-        Map<String, String> finnoneToAccountFieldMap = new Map<String, String>{
-            'Name' => 'Name',
-            'AgencyCode__c' => 'AgencyCode__c',
-            'Bank_Ac_No__c' => 'AccountNumber',
-            'City_Id__c' => 'BillingCity'
+        Map<String, String> finnoneToContactFieldMap = new Map<String, String>{
+            'Name' => 'LastName'
         };
         
-        String query = 'SELECT Id, SF_Account_Id__c, SF_Contact_Id__c, SF_BatchId__c ';
-        for (String f : finnoneToAccountFieldMap.keySet()) query += ', ' + f;
-        query += ' FROM FinnoneSync__c ';
+        String query = 'SELECT Id, SF_Account_Id__c, SF_Contact_Id__c';
+        for (String f : finnoneToContactFieldMap.keySet()) query += ', ' + f;
+        query += ' FROM FinnoneSync__c LIMIT 10000';
         
         return Database.getQueryLocator(query);
     }
@@ -27,133 +32,69 @@ public class MapToAccountBatch implements Database.Batchable<SObject>, Database.
     public void execute(Database.BatchableContext BC, List<SObject> scope) {
         List<FinnoneSync__c> finnoneSyncRecords = (List<FinnoneSync__c>)scope;
         
-        Map<String, String> finnoneToAccountFieldMap = new Map<String, String>{
-            'Name' => 'Name',
-            'AgencyCode__c' => 'AgencyCode__c',
-            'Bank_Ac_No__c' => 'AccountNumber',
-            'City_Id__c' => 'BillingCity'
+        Map<String, String> finnoneToContactFieldMap = new Map<String, String>{
+            'Name' => 'LastName'
         };
         
-        // Create a map to store existing accounts by their Id
-        Map<Id, Account> existingAccountsMap = new Map<Id, Account>();
+        Map<Id, Contact> existingContactsMap = new Map<Id, Contact>();
         Set<Id> existingIds = new Set<Id>();
         
-        // Collect all existing account IDs from the FinnoneSync records
         for (FinnoneSync__c fs : finnoneSyncRecords) {
-            if (String.isNotBlank(fs.SF_Account_Id__c)) {
-                existingIds.add(fs.SF_Account_Id__c);
-            }
+            if (String.isNotBlank(fs.SF_Contact_Id__c)) existingIds.add((Id)fs.SF_Contact_Id__c);
         }
         
-        // Query for existing accounts
         if (!existingIds.isEmpty()) {
-            existingAccountsMap = new Map<Id, Account>(
-                [SELECT Id, Name, AgencyCode__c, AccountNumber, BillingCity, Partner_Type__c 
-                 FROM Account WHERE Id IN :existingIds]
+            existingContactsMap = new Map<Id, Contact>(
+                [SELECT Id, LastName, AccountId FROM Contact WHERE Id IN :existingIds]
             );
         }
         
-        // Lists for update and insert operations
-        List<Account> accountsToUpdate = new List<Account>();
-        List<Account> accountsToInsert = new List<Account>();
+        List<Contact> contactsToUpsert = new List<Contact>();
         
-        // Maps to track which finnoneSync record corresponds to which Account
-        Map<Id, FinnoneSync__c> accountToFinnoneMap = new Map<Id, FinnoneSync__c>();
-        Map<Integer, FinnoneSync__c> newAccountIndexToFinnoneMap = new Map<Integer, FinnoneSync__c>();
-        
-        // Process each FinnoneSync record
         for (FinnoneSync__c fs : finnoneSyncRecords) {
-            if (String.isNotBlank(fs.SF_Account_Id__c) && existingAccountsMap.containsKey(fs.SF_Account_Id__c)) {
-                // Update existing account
-                Account acc = existingAccountsMap.get(fs.SF_Account_Id__c);
-                
-                // Update account fields
-                for (String finnoneField : finnoneToAccountFieldMap.keySet()) {
-                    String accountField = finnoneToAccountFieldMap.get(finnoneField);
-                    Object value = fs.get(finnoneField);
-                    if (value != null) acc.put(accountField, value);
-                }
-                
-                // Set partner type
-                acc.Partner_Type__c = 'Dealer';
-                
-                // Add to update list
-                accountsToUpdate.add(acc);
-                accountToFinnoneMap.put(acc.Id, fs);
+            Contact con;
+            if (String.isNotBlank(fs.SF_Contact_Id__c) && existingContactsMap.containsKey(fs.SF_Contact_Id__c)) {
+                // result.put('updatedCount', result.get('updatedCount') + 1);
                 recordsUpdated++;
+                con = existingContactsMap.get(fs.SF_Contact_Id__c);
             } else {
-                // Create new account
-                Account acc = new Account();
-                
-                // Set account fields
-                for (String finnoneField : finnoneToAccountFieldMap.keySet()) {
-                    String accountField = finnoneToAccountFieldMap.get(finnoneField);
-                    Object value = fs.get(finnoneField);
-                    if (value != null) acc.put(accountField, value);
-                }
-                
-                // Set record type and partner type
-                acc.Partner_Type__c = 'Dealer';
-                if (recordNameId != null) {
-                    acc.RecordTypeId = recordNameId;
-                }
-                
-                // Add to insert list
-                accountsToInsert.add(acc);
-                newAccountIndexToFinnoneMap.put(accountsToInsert.size() - 1, fs);
+                // result.put('insertedCount', result.get('insertedCount') + 1);
                 recordsInserted++;
+                con = new Contact();
             }
+            
+            for (String finnoneField : finnoneToContactFieldMap.keySet()) {
+                String contactField = finnoneToContactFieldMap.get(finnoneField);
+                Object value = fs.get(finnoneField);
+                if (value != null) con.put(contactField, value);
+            }
+            
+            // Always set AccountId if present
+            if (String.isNotBlank(fs.SF_Account_Id__c)) {
+                con.AccountId = (Id)fs.SF_Account_Id__c;
+            }
+            
+            contactsToUpsert.add(con);
         }
         
-        // Process updates
-        List<FinnoneSync__c> finnoneSyncToUpdate = new List<FinnoneSync__c>();
-        String batchId = BC.getJobId();
-        
-        if (!accountsToUpdate.isEmpty()) {
-            List<Database.SaveResult> updateResults = Database.update(accountsToUpdate, false);
+        if (!contactsToUpsert.isEmpty()) {
+            List<Database.UpsertResult> results = Database.upsert(contactsToUpsert, Contact.Id, false);
             
-            for (Integer i = 0; i < updateResults.size(); i++) {
-                Database.SaveResult result = updateResults[i];
-                Account acc = accountsToUpdate[i];
-                FinnoneSync__c fs = accountToFinnoneMap.get(acc.Id);
-                
-                if (result.isSuccess()) {
-                    recordsSucceeded++;
-                    fs.SF_BatchId__c = batchId;
-                    finnoneSyncToUpdate.add(fs);
-                } else {
-                    recordsFailed++;
-                    // Handle error if needed
+            List<FinnoneSync__c> toUpdate = new List<FinnoneSync__c>();
+            for (Integer i = 0; i < results.size(); i++) {
+                if (results[i].isSuccess()) {
+                    // result.put('mappedCount', result.get('mappedCount') + 1);
+                    if (String.isBlank(finnoneSyncRecords[i].SF_Contact_Id__c)) {
+                        finnoneSyncRecords[i].SF_Contact_Id__c = results[i].getId();
+                        toUpdate.add(finnoneSyncRecords[i]);
+                    }
                 }
             }
-        }
-        
-        // Process inserts
-        if (!accountsToInsert.isEmpty()) {
-            List<Database.SaveResult> insertResults = Database.insert(accountsToInsert, false);
             
-            for (Integer i = 0; i < insertResults.size(); i++) {
-                Database.SaveResult result = insertResults[i];
-                FinnoneSync__c fs = newAccountIndexToFinnoneMap.get(i);
-                
-                if (result.isSuccess()) {
-                    recordsSucceeded++;
-                    fs.SF_Account_Id__c = insertResults[i].getId();
-                    fs.SF_BatchId__c = batchId;
-                    finnoneSyncToUpdate.add(fs);
-                } else {
-                    recordsFailed++;
-                    // Handle error if needed
-                }
-            }
-        }
-        
-        // Update FinnoneSync records with new Account IDs and batch ID
-        if (!finnoneSyncToUpdate.isEmpty()) {
-            update finnoneSyncToUpdate;
+            if (!toUpdate.isEmpty()) update toUpdate;
         }
     }
-    
+
     public void finish(Database.BatchableContext BC) {
         // Update the batch job status record
         try {
@@ -164,19 +105,24 @@ public class MapToAccountBatch implements Database.Batchable<SObject>, Database.
                 WHERE Id = :BC.getJobId()
             ];
             
-            List<BatchJobStatus__c> statusRecords = [   
+            
+            List<BatchJobStatus__c> statusRecords = [
                 SELECT Id 
                 FROM BatchJobStatus__c 
                 WHERE BatchId__c = :BC.getJobId() 
                 LIMIT 1
             ];
+
+            
+            // BatchJobStatus__c statusRecord = new BatchJobStatus__c();
             
             if (!statusRecords.isEmpty()) {
                 BatchJobStatus__c statusRecord = statusRecords[0];
-                statusRecord.Status__c = 'Account Completed';
+                // statusRecord.BatchId__c = BC.getJobId() ;
+                statusRecord.Status__c = 'Contact Completed';
                 statusRecord.RecordsProcessed__c = this.recordsInserted + this.recordsUpdated;
                 statusRecord.RecordsInserted__c = this.recordsInserted;
-                statusRecord.RecordsSucceeded__c = this.recordsSucceeded;
+                statusRecord.RecordsSucceeded__c = (this.recordsInserted + this.recordsUpdated) - this.recordsFailed;
                 statusRecord.RecordsUpdated__c = this.recordsUpdated;
                 statusRecord.RecordsFailed__c = this.recordsFailed;
                 statusRecord.EndTime__c = Datetime.now();
@@ -185,11 +131,9 @@ public class MapToAccountBatch implements Database.Batchable<SObject>, Database.
                 update statusRecord;
             }
             
-            // Uncomment if you want to chain the Contact batch after this
-            // Database.executeBatch(new MapToContactBatch(), 200);
-            
         } catch (Exception e) {
             System.debug('Error updating batch job status: ' + e.getMessage());
         }
+
     }
 }
