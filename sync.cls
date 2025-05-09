@@ -1,4 +1,4 @@
-public class MapToBankBatch implements Database.Batchable<SObject>, Database.Stateful {
+public class MapToContactBatch implements Database.Batchable<SObject>, Database.Stateful {
     private Map<String, Integer> result;
     
     private Integer recordsProcessed = 0;
@@ -9,22 +9,16 @@ public class MapToBankBatch implements Database.Batchable<SObject>, Database.Sta
     private String jobMessage = '';
     
     public Database.QueryLocator start(Database.BatchableContext BC) {
-        Map<String, String> finnoneToBankFieldMap = new Map<String, String>{
-            'AgencyCode__c' => 'AgencyCode__c',
-            'Cash_Bank_Account__c' => 'Cash_Bank_Account__c',
-            'Cash_Bank_Acc_Desc__c' => 'Cash_Bank_Acc_Desc__c',
-            'Payment_Mode__c' => 'Payment_Mode__c',
-            'Name' => 'Name',
-            'Bank_Ac_No__c' => 'Bank_Ac_No__c',
-            'IFSC_Code__c' => 'IFSC_Code__c',
-            'City_ID__c' => 'City_ID__c',
-            'FT_Mode__c' => 'FT_Mode__c',
-            'Disburse_To__c' => 'Disburse_To__c',
-            'MICRCode__c' => 'MICRCode__c'
+        Map<String, String> finnoneToContactFieldMap = new Map<String, String>{
+            'Name' => 'LastName',
+            'FirstName__c' => 'FirstName',
+            'Email__c' => 'Email',
+            'Phone__c' => 'Phone'
+            // Add more field mappings as needed
         };
         
-        String query = 'SELECT Id, SF_Bank_Id__c, SF_BatchId__c, Composite_Key_bank__c';
-        for (String f : finnoneToBankFieldMap.keySet()) query += ', ' + f;
+        String query = 'SELECT Id, SF_Account_Id__c, SF_Contact_Id__c, SF_BatchId__c';
+        for (String f : finnoneToContactFieldMap.keySet()) query += ', ' + f;
         query += ' FROM FinnoneSync__c';
         
         return Database.getQueryLocator(query);
@@ -33,147 +27,189 @@ public class MapToBankBatch implements Database.Batchable<SObject>, Database.Sta
     public void execute(Database.BatchableContext BC, List<SObject> scope) {
         List<FinnoneSync__c> finnoneSyncRecords = (List<FinnoneSync__c>)scope;
         
-        Map<String, String> finnoneToBankFieldMap = new Map<String, String>{
-            'AgencyCode__c' => 'AgencyCode__c',
-            'Cash_Bank_Account__c' => 'Cash_Bank_Account__c',
-            'Cash_Bank_Acc_Desc__c' => 'Cash_Bank_Acc_Desc__c',
-            'Payment_Mode__c' => 'Payment_Mode__c',
-            'Name' => 'Name',
-            'Bank_Ac_No__c' => 'Bank_Ac_No__c',
-            'IFSC_Code__c' => 'IFSC_Code__c',
-            'City_ID__c' => 'City_ID__c',
-            'FT_Mode__c' => 'FT_Mode__c',
-            'Disburse_To__c' => 'Disburse_To__c',
-            'MICRCode__c' => 'MICRCode__c'
+        Map<String, String> finnoneToContactFieldMap = new Map<String, String>{
+            'Name' => 'LastName',
+            'FirstName__c' => 'FirstName',
+            'Email__c' => 'Email',
+            'Phone__c' => 'Phone'
+            // Add more field mappings as needed
         };
         
-        // Create a map to store existing banks by their Id
-        Map<Id, BankMstr__c> existingBanksMap = new Map<Id, BankMstr__c>();
-        Set<Id> existingIds = new Set<Id>();
+        // Create a map to store existing contacts by their Id
+        Map<Id, Contact> existingContactsById = new Map<Id, Contact>();
+        Set<Id> existingContactIds = new Set<Id>();
         
-        // Collect all existing bank IDs from the FinnoneSync records
+        // Set to collect Account IDs for looking up existing contacts
+        Set<Id> accountIds = new Set<Id>();
+        
+        // Collect all existing contact IDs and account IDs from the FinnoneSync records
         for (FinnoneSync__c fs : finnoneSyncRecords) {
-            if (String.isNotBlank(fs.SF_Bank_Id__c)) {
-                existingIds.add((Id)fs.SF_Bank_Id__c);
+            if (String.isNotBlank(fs.SF_Contact_Id__c)) {
+                existingContactIds.add(fs.SF_Contact_Id__c);
+            }
+            if (String.isNotBlank(fs.SF_Account_Id__c)) {
+                accountIds.add(fs.SF_Account_Id__c);
             }
         }
         
-        // Query for existing banks
-        if (!existingIds.isEmpty()) {
-            existingBanksMap = new Map<Id, BankMstr__c>(
-                [SELECT Id, AgencyCode__c, Cash_Bank_Account__c, Cash_Bank_Acc_Desc__c, 
-                 Payment_Mode__c, Name, Bank_Ac_No__c, IFSC_Code__c, City_ID__c, 
-                 FT_Mode__c, Disburse_To__c, MICRCode__c
-                 FROM BankMstr__c WHERE Id IN :existingIds]
+        // Query for existing contacts by ID
+        if (!existingContactIds.isEmpty()) {
+            existingContactsById = new Map<Id, Contact>(
+                [SELECT Id, LastName, FirstName, Email, Phone, AccountId 
+                 FROM Contact WHERE Id IN :existingContactIds]
             );
         }
 
-        System.Debug('existingIds.size() ===========>' + existingIds.size());
+        // Map to store contacts by Account ID
+        Map<Id, List<Contact>> contactsByAccountId = new Map<Id, List<Contact>>();
+        
+        // Query for existing contacts by Account ID
+        if (!accountIds.isEmpty()) {
+            for (Contact con : [SELECT Id, LastName, FirstName, Email, Phone, AccountId 
+                              FROM Contact WHERE AccountId IN :accountIds]) {
+                if (!contactsByAccountId.containsKey(con.AccountId)) {
+                    contactsByAccountId.put(con.AccountId, new List<Contact>());
+                }
+                contactsByAccountId.get(con.AccountId).add(con);
+                
+                // Also add to the ID map if not already there
+                if (!existingContactsById.containsKey(con.Id)) {
+                    existingContactsById.put(con.Id, con);
+                }
+            }
+        }
+
+        System.Debug('Existing contacts by ID count: ' + existingContactsById.size());
+        System.Debug('Accounts with existing contacts: ' + contactsByAccountId.size());
         
         // Lists for update and insert operations
-        List<BankMstr__c> banksToUpdate = new List<BankMstr__c>();
-        List<BankMstr__c> banksToInsert = new List<BankMstr__c>();
+        List<Contact> contactsToUpdate = new List<Contact>();
+        List<Contact> contactsToInsert = new List<Contact>();
         
-        // Maps to track which finnoneSync record corresponds to which Bank
-        Map<Id, FinnoneSync__c> bankToFinnoneMap = new Map<Id, FinnoneSync__c>();
-        Map<Integer, FinnoneSync__c> newBankIndexToFinnoneMap = new Map<Integer, FinnoneSync__c>();
+        // Maps to track which finnoneSync record corresponds to which Contact
+        Map<Id, FinnoneSync__c> contactToFinnoneMap = new Map<Id, FinnoneSync__c>();
+        Map<Integer, FinnoneSync__c> newContactIndexToFinnoneMap = new Map<Integer, FinnoneSync__c>();
         
         // Process each FinnoneSync record
         for (FinnoneSync__c fs : finnoneSyncRecords) {
-            if (String.isNotBlank(fs.SF_Bank_Id__c) && existingBanksMap.containsKey(fs.SF_Bank_Id__c)) {
-                // Update existing bank
-                BankMstr__c bank = existingBanksMap.get(fs.SF_Bank_Id__c);
-                
-                // Update bank fields
-                for (String finnoneField : finnoneToBankFieldMap.keySet()) {
-                    String bankField = finnoneToBankFieldMap.get(finnoneField);
-                    Object value = fs.get(finnoneField);
-                    if (value != null) bank.put(bankField, value);
-                }
-                
-                // Add to update list
-                banksToUpdate.add(bank);
-                bankToFinnoneMap.put(bank.Id, fs);
-                
-                System.Debug('banksToUpdate =========>' + banksToUpdate.size());
+            Contact contactToProcess;
+            Boolean isUpdate = false;
+            
+            // Case 1: Contact ID is provided and exists
+            if (String.isNotBlank(fs.SF_Contact_Id__c) && existingContactsById.containsKey(fs.SF_Contact_Id__c)) {
+                contactToProcess = existingContactsById.get(fs.SF_Contact_Id__c);
+                isUpdate = true;
+            } 
+            // Case 2: No Contact ID but Account ID exists and has contacts
+            else if (String.isNotBlank(fs.SF_Account_Id__c) && contactsByAccountId.containsKey(fs.SF_Account_Id__c) 
+                    && !contactsByAccountId.get(fs.SF_Account_Id__c).isEmpty()) {
+                // Choose the first contact associated with this account
+                // You may want to implement more sophisticated matching logic here
+                contactToProcess = contactsByAccountId.get(fs.SF_Account_Id__c)[0];
+                isUpdate = true;
+            }
+            // Case 3: New contact needs to be created
+            else {
+                contactToProcess = new Contact();
+                isUpdate = false;
+            }
+            
+            // Update contact fields from FinnoneSync record
+            for (String finnoneField : finnoneToContactFieldMap.keySet()) {
+                String contactField = finnoneToContactFieldMap.get(finnoneField);
+                Object value = fs.get(finnoneField);
+                if (value != null) contactToProcess.put(contactField, value);
+            }
+            
+            // Always set AccountId if present
+            if (String.isNotBlank(fs.SF_Account_Id__c)) {
+                contactToProcess.AccountId = (Id)fs.SF_Account_Id__c;
+            }
+            
+            if (isUpdate) {
+                contactsToUpdate.add(contactToProcess);
+                contactToFinnoneMap.put(contactToProcess.Id, fs);
             } else {
-                // Create new bank
-                BankMstr__c bank = new BankMstr__c();
-                
-                // Set bank fields
-                for (String finnoneField : finnoneToBankFieldMap.keySet()) {
-                    String bankField = finnoneToBankFieldMap.get(finnoneField);
-                    Object value = fs.get(finnoneField);
-                    if (value != null) bank.put(bankField, value);
-                }
-                
-                // Add to insert list
-                banksToInsert.add(bank);
-                newBankIndexToFinnoneMap.put(banksToInsert.size() - 1, fs);
+                contactsToInsert.add(contactToProcess);
+                newContactIndexToFinnoneMap.put(contactsToInsert.size() - 1, fs);
             }
         }
         
-        FinnoneSync__c temp = [Select RecordsProcessed__c from FinnoneSync__c where JobType__c = 'CSV Processing' AND Status__c = 'Completed' ORDER BY CreatedDate DESC LIMIT 1];
-        System.debug('temp ==========>' + temp);
-        System.debug('banksToUpdate ==========>' + banksToUpdate.size());
+        System.Debug('Contacts to update: ' + contactsToUpdate.size());
+        System.Debug('Contacts to insert: ' + contactsToInsert.size());
+        
+        // Get the previous processing stats if needed
+        Integer previousRecordsProcessed = 0;
+        try {
+            FinnoneSync__c temp = [SELECT RecordsProcessed__c FROM FinnoneSync__c 
+                                  WHERE JobType__c = 'CSV Processing' AND Status__c = 'Completed' 
+                                  ORDER BY CreatedDate DESC LIMIT 1];
+            previousRecordsProcessed = (Integer)temp.RecordsProcessed__c;
+            System.debug('Previous records processed: ' + previousRecordsProcessed);
+        } catch (Exception e) {
+            System.debug('No previous processing stats found: ' + e.getMessage());
+        }
         
         // Update record counts
-        recordsInserted += banksToInsert.size();
-        recordsUpdated = (Integer)temp.RecordsProcessed__c - recordsInserted;
+        recordsInserted += contactsToInsert.size();
+        recordsUpdated += contactsToUpdate.size();
         
         // Process updates
         List<FinnoneSync__c> finnoneSyncToUpdate = new List<FinnoneSync__c>();
         String batchId = BC.getJobId();
         
-        if (!banksToUpdate.isEmpty()) {
-            List<Database.SaveResult> updateResults = Database.update(banksToUpdate, false);
+        if (!contactsToUpdate.isEmpty()) {
+            List<Database.SaveResult> updateResults = Database.update(contactsToUpdate, false);
             
             for (Integer i = 0; i < updateResults.size(); i++) {
                 Database.SaveResult result = updateResults[i];
-                BankMstr__c bank = banksToUpdate[i];
-                FinnoneSync__c fs = bankToFinnoneMap.get(bank.Id);
+                Contact con = contactsToUpdate[i];
+                FinnoneSync__c fs = contactToFinnoneMap.get(con.Id);
                 
                 if (result.isSuccess()) {
                     recordsSucceeded++;
+                    fs.SF_Contact_Id__c = con.Id; // Ensure the Contact ID is set
                     fs.SF_BatchId__c = batchId;
                     finnoneSyncToUpdate.add(fs);
                 } else {
                     recordsFailed++;
-                    // Optionally capture error details
+                    // Capture error details
                     for (Database.Error err : result.getErrors()) {
-                        jobMessage += 'Update Error for Bank ' + bank.Id + ': ' + err.getMessage() + '\n';
+                        jobMessage += 'Update Error for Contact ' + con.Id + ': ' + err.getMessage() + '\n';
                     }
                 }
             }
         }
         
         // Process inserts
-        if (!banksToInsert.isEmpty()) {
-            List<Database.SaveResult> insertResults = Database.insert(banksToInsert, false);
+        if (!contactsToInsert.isEmpty()) {
+            List<Database.SaveResult> insertResults = Database.insert(contactsToInsert, false);
             
             for (Integer i = 0; i < insertResults.size(); i++) {
                 Database.SaveResult result = insertResults[i];
-                FinnoneSync__c fs = newBankIndexToFinnoneMap.get(i);
+                FinnoneSync__c fs = newContactIndexToFinnoneMap.get(i);
                 
                 if (result.isSuccess()) {
                     recordsSucceeded++;
-                    fs.SF_Bank_Id__c = insertResults[i].getId();
+                    fs.SF_Contact_Id__c = insertResults[i].getId();
                     fs.SF_BatchId__c = batchId;
                     finnoneSyncToUpdate.add(fs);
                 } else {
                     recordsFailed++;
-                    // Optionally capture error details
+                    // Capture error details
                     for (Database.Error err : result.getErrors()) {
-                        jobMessage += 'Insert Error for new Bank: ' + err.getMessage() + '\n';
+                        jobMessage += 'Insert Error for new Contact: ' + err.getMessage() + '\n';
                     }
                 }
             }
         }
         
-        // Update FinnoneSync records with new Bank IDs and batch ID
+        // Update FinnoneSync records with new Contact IDs and batch ID
         if (!finnoneSyncToUpdate.isEmpty()) {
             update finnoneSyncToUpdate;
         }
+        
+        recordsProcessed += finnoneSyncRecords.size();
     }
     
     public void finish(Database.BatchableContext BC) {
@@ -195,10 +231,10 @@ public class MapToBankBatch implements Database.Batchable<SObject>, Database.Sta
             
             if (!statusRecords.isEmpty()) {
                 BatchJobStatus__c statusRecord = statusRecords[0];
-                statusRecord.Status__c = 'Bank Completed';
-                statusRecord.RecordsProcessed__c = this.recordsInserted + this.recordsUpdated;
+                statusRecord.Status__c = 'Contact Completed';
+                statusRecord.RecordsProcessed__c = this.recordsProcessed;
                 statusRecord.RecordsInserted__c = this.recordsInserted;
-                statusRecord.RecordsSucceeded__c = (this.recordsInserted + this.recordsUpdated) - this.recordsFailed;
+                statusRecord.RecordsSucceeded__c = this.recordsSucceeded;
                 statusRecord.RecordsUpdated__c = this.recordsUpdated;
                 statusRecord.RecordsFailed__c = this.recordsFailed;
                 statusRecord.EndTime__c = Datetime.now();
