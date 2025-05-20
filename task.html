@@ -1,0 +1,127 @@
+<!-- eventScheduler.html -->
+<template>
+    <lightning-card title="Event Scheduler" icon-name="standard:event">
+        <div class="slds-p-around_medium">
+            <!-- Form -->
+            <div class="slds-grid slds-gutters slds-wrap">
+                <!-- Date Picker -->
+                <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-p-bottom_small">
+                    <lightning-input 
+                        type="date" 
+                        name="eventDate" 
+                        label="Event Date" 
+                        value={selectedDate} 
+                        onchange={handleDateChange} 
+                        required>
+                    </lightning-input>
+                </div>
+                
+                <!-- Event Dropdown -->
+                <div class="slds-col slds-size_1-of-1 slds-medium-size_1-of-2 slds-p-bottom_small">
+                    <lightning-combobox
+                        name="eventId"
+                        label="Available Events"
+                        value={selectedEventId}
+                        options={eventOptions}
+                        onchange={handleEventChange}
+                        disabled={noEventsAvailable}
+                        required>
+                    </lightning-combobox>
+                    <template if:true={noEventsAvailable}>
+                        <div class="slds-text-color_weak slds-p-top_x-small">
+                            No events available for the selected date
+                        </div>
+                    </template>
+                </div>
+                
+                <!-- Contact Lookup -->
+                <div class="slds-col slds-size_1-of-1 slds-p-bottom_small">
+                    <lightning-record-edit-form object-api-name="Contact">
+                        <lightning-input-field
+                            field-name="Id"
+                            value={selectedContactId}
+                            onchange={handleContactChange}
+                            required>
+                        </lightning-input-field>
+                    </lightning-record-edit-form>
+                </div>
+                
+                <!-- Notes Field -->
+                <div class="slds-col slds-size_1-of-1 slds-p-bottom_small">
+                    <lightning-textarea
+                        name="notes"
+                        label="Notes"
+                        value={notes}
+                        onchange={handleNotesChange}
+                        required>
+                    </lightning-textarea>
+                </div>
+                
+                <!-- Event Details Section -->
+                <template if:true={selectedEvent}>
+                    <div class="slds-col slds-size_1-of-1 slds-p-vertical_small">
+                        <div class="slds-box slds-theme_shade">
+                            <h3 class="slds-text-heading_small slds-p-bottom_small">Event Details</h3>
+                            <dl class="slds-dl_horizontal slds-wrap">
+                                <dt class="slds-dl_horizontal__label slds-size_1-of-3">
+                                    <p class="slds-truncate" title="Name">Name:</p>
+                                </dt>
+                                <dd class="slds-dl_horizontal__detail slds-size_2-of-3">
+                                    <p>{selectedEvent.Name}</p>
+                                </dd>
+                                <dt class="slds-dl_horizontal__label slds-size_1-of-3">
+                                    <p class="slds-truncate" title="Date">Date:</p>
+                                </dt>
+                                <dd class="slds-dl_horizontal__detail slds-size_2-of-3">
+                                    <p>{selectedEvent.formattedDate}</p>
+                                </dd>
+                                <dt class="slds-dl_horizontal__label slds-size_1-of-3">
+                                    <p class="slds-truncate" title="Time">Time:</p>
+                                </dt>
+                                <dd class="slds-dl_horizontal__detail slds-size_2-of-3">
+                                    <p>{selectedEvent.formattedTimeRange}</p>
+                                </dd>
+                                <dt class="slds-dl_horizontal__label slds-size_1-of-3">
+                                    <p class="slds-truncate" title="Description">Description:</p>
+                                </dt>
+                                <dd class="slds-dl_horizontal__detail slds-size_2-of-3">
+                                    <p>{selectedEvent.Description__c}</p>
+                                </dd>
+                                <dt class="slds-dl_horizontal__label slds-size_1-of-3">
+                                    <p class="slds-truncate" title="Capacity">Capacity:</p>
+                                </dt>
+                                <dd class="slds-dl_horizontal__detail slds-size_2-of-3">
+                                    <p>{selectedEvent.capacityDisplay}</p>
+                                </dd>
+                                <dt class="slds-dl_horizontal__label slds-size_1-of-3">
+                                    <p class="slds-truncate" title="Waitlist">Waitlist:</p>
+                                </dt>
+                                <dd class="slds-dl_horizontal__detail slds-size_2-of-3">
+                                    <p>{selectedEvent.waitlistDisplay}</p>
+                                </dd>
+                            </dl>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            
+            <!-- Submit Button -->
+            <div class="slds-align_absolute-center slds-p-top_medium">
+                <lightning-button 
+                    variant="brand" 
+                    label="Register for Event" 
+                    title="Register for Event" 
+                    onclick={handleSubmit} 
+                    disabled={isSubmitDisabled}>
+                </lightning-button>
+            </div>
+            
+            <!-- Loading Spinner -->
+            <template if:true={isLoading}>
+                <div class="slds-is-relative slds-p-around_medium">
+                    <lightning-spinner alternative-text="Loading" size="medium"></lightning-spinner>
+                </div>
+            </template>
+        </div>
+    </lightning-card>
+</template>
