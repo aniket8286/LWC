@@ -6,10 +6,10 @@ public with sharing class EventSchedulerController {
      * Includes count of registered attendees for capacity calculation
      * 
      * @param eventDate - The date to retrieve events for
-     * @return List<Event__c> - List of events with additional information
+     * @return List<EventWrapper> - List of events with additional information
      */
     @AuraEnabled(cacheable=true)
-    public static List<Event__c> getEventsByDate(Date eventDate) {
+    public static List<EventWrapper> getEventsByDate(Date eventDate) {
         // Validate input
         if (eventDate == null) {
             throw new AuraHandledException('Event date is required');
@@ -32,12 +32,26 @@ public with sharing class EventSchedulerController {
             ORDER BY Start_Time__c ASC
         ];
         
-        // Add count of registered attendees to each event
+        // Create wrapper objects to include the registered count
+        List<EventWrapper> eventWrappers = new List<EventWrapper>();
         for (Event__c event : events) {
-            event.put('registeredCount', event.Event_Attendees__r.size());
+            eventWrappers.add(new EventWrapper(event));
         }
         
-        return events;
+        return eventWrappers;
+    }
+    
+    /**
+     * Wrapper class to include additional fields with Event__c object
+     */
+    public class EventWrapper {
+        @AuraEnabled public Event__c event;
+        @AuraEnabled public Integer registeredCount;
+        
+        public EventWrapper(Event__c evt) {
+            this.event = evt;
+            this.registeredCount = evt.Event_Attendees__r.size();
+        }
     }
     
     /**
