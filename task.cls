@@ -27,28 +27,36 @@ public with sharing class SMFGLMSAssetDedupResponseProcessor implements IintMsgC
     public static SMFGLMSAssetDedupResponseProcessor parse(String json) {
         System.debug('json=====================> '+json);
         
-        // Option 1: Clean the timestamp format before parsing
-        // This regex replaces timestamp patterns like "Fri May 23 18:40:17 IST 2025" with a simple string
-        String cleanedJson = json.replaceAll('"responseTimeStamp":"[^"]*"', '"responseTimeStamp":"' + System.now().format() + '"');
-        
         try {
-            return (SMFGLMSAssetDedupResponseProcessor) System.JSON.deserialize(cleanedJson, SMFGLMSAssetDedupResponseProcessor.class);
+            // First try direct deserialization
+            return (SMFGLMSAssetDedupResponseProcessor) JSON.deserialize(json, SMFGLMSAssetDedupResponseProcessor.class);
         } catch (Exception e) {
-            System.debug('JSON Parsing Error: ' + e.getMessage());
-            // Option 2: Use manual parsing as fallback
-            return parseManually(json);
+            System.debug('Direct parsing failed: ' + e.getMessage());
+            
+            // Try cleaning the timestamp format and parse again
+            try {
+                String cleanedJson = cleanTimestampFormat(json);
+                return (SMFGLMSAssetDedupResponseProcessor) JSON.deserialize(cleanedJson, SMFGLMSAssetDedupResponseProcessor.class);
+            } catch (Exception e2) {
+                System.debug('Cleaned parsing failed: ' + e2.getMessage());
+                return parseManually(json);
+            }
         }
     }
     
-    // Alternative manual parsing method
+    private static String cleanTimestampFormat(String json) {
+        // Replace problematic timestamp format with a clean one
+        return json.replaceAll('"responseTimeStamp":"[^"]*"', '"responseTimeStamp":"' + DateTime.now().format('yyyy-MM-dd HH:mm:ss') + '"');
+    }
+    
     private static SMFGLMSAssetDedupResponseProcessor parseManually(String json) {
         try {
-            Map<String, Object> jsonMap = (Map<String, Object>) JSON.deserializeUntyped(json);
+            Map<String, Object> rootMap = (Map<String, Object>) System.JSON.deserializeUntyped(json);
             
             SMFGLMSAssetDedupResponseProcessor processor = new SMFGLMSAssetDedupResponseProcessor();
             processor.response = new Response();
             
-            Map<String, Object> responseMap = (Map<String, Object>) jsonMap.get('response');
+            Map<String, Object> responseMap = (Map<String, Object>) rootMap.get('response');
             if (responseMap != null) {
                 // Parse header
                 Map<String, Object> headerMap = (Map<String, Object>) responseMap.get('header');
@@ -92,8 +100,9 @@ public with sharing class SMFGLMSAssetDedupResponseProcessor implements IintMsgC
             Common_Configuration__mdt comConfigMdt = [SELECT Id,TW_Algo_Type__c,TW_Algo_Key__c,TW_Algo_String__c,TW_IVString__c FROM Common_Configuration__mdt where JL_Algorithm_Name__c =: 'SyncCallout' LIMIT 1];
             decryptResponse = EncryptApex.decryptString(comConfigMdt.TW_Algo_Type__c,comConfigMdt.TW_Algo_Key__c,'',false,resPayload);
             System.debug('decrypt===============> '+decryptResponse);
-            Map<String, Object> parameter = (Map<String, Object>) JSON.deserializeUntyped(decryptResponse);
-           SMFGLMSAssetDedupResponseProcessor wrap = new SMFGLMSAssetDedupResponseProcessor();
+            
+            Map<String, Object> parameter = (Map<String, Object>) System.JSON.deserializeUntyped(decryptResponse);
+            SMFGLMSAssetDedupResponseProcessor wrap = new SMFGLMSAssetDedupResponseProcessor();
             wrap = SMFGLMSAssetDedupResponseProcessor.parse((String)parameter.get('response')); 
             System.debug('wrap=========>26 onboarding '+wrap);
             
@@ -153,8 +162,3 @@ public with sharing class SMFGLMSAssetDedupResponseProcessor implements IintMsgC
         public String Message;
     }
 }
-
-
-force-app\main\default\classes\SMFGLMSAssetDedupResponseProcessor.cls  Method does not exist or incorrect signature: void deserializeUntyped(String) from the type String (46:70)
-
-19:00:32.667 ended SFDX: Deploy This Source to Org
